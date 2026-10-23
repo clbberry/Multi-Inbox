@@ -3,6 +3,10 @@
 const BASE = process.env.COMPOSIO_BASE_URL || 'https://backend.composio.dev/api/v3.1';
 const VERSION = process.env.COMPOSIO_TOOLKIT_VERSION || 'latest';
 
+// Strip whitespace/newlines and wrapping quotes that sneak in when a key is pasted into env settings.
+const cleanKey = (k) => String(k || '').trim().replace(/^(["'`])(.*)\1$/s, '$2').trim();
+const apiKey = () => cleanKey(process.env.COMPOSIO_API_KEY);
+
 async function api(path, { method = 'GET', body, query } = {}) {
   const url = new URL(BASE + path);
   for (const [k, v] of Object.entries(query || {})) {
@@ -12,7 +16,7 @@ async function api(path, { method = 'GET', body, query } = {}) {
   }
   const res = await fetch(url, {
     method,
-    headers: { 'x-api-key': process.env.COMPOSIO_API_KEY, 'content-type': 'application/json' },
+    headers: { 'x-api-key': apiKey(), 'content-type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -20,7 +24,10 @@ async function api(path, { method = 'GET', body, query } = {}) {
   try { json = JSON.parse(text); } catch { json = { raw: text }; }
   if (!res.ok) {
     const msg = json?.error?.message || json?.message || json?.raw || res.statusText;
-    throw new Error(`Composio ${res.status}: ${String(msg).slice(0, 300)}`);
+    const err = `Composio ${res.status}: ${String(msg).slice(0, 300)}`;
+    // Log the real failure (never the key itself, only its length) so it shows in deploy logs.
+    console.error(`[composio] ${method} ${url.pathname} -> ${err} (key length ${apiKey().length})`);
+    throw new Error(err);
   }
   return json;
 }
